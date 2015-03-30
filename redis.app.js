@@ -26,17 +26,28 @@ app.provider('redisUrl',['REDIS_HOST','REDIS_PORT',function(REDIS_HOST,REDIS_POR
     self.set = function(key,val){
         self[key] = val;
     };
+    self.setHost = function(host){
+        self.set('host',host);
+    };
+    self.setPort = function(port){
+        self.set('port',port);
+    };
     return {
         $get:[function(){
             return "http://"+self.host+":"+self.port;
         }],
-        set:self.set
+        set:self.set,
+        setHost:self.setHost,
+        setPort:self.setPort
     };
 }]);
 
 app.factory('redisArgs',[function(){
     return function(args){
         var rtn = '';
+        if(isString(args)){
+            return '/'+args;
+        }
         if(!isArray(args)){
             forEach(args,function(val,key){
                 rtn += '/'+key+'/'+val;
@@ -85,5 +96,25 @@ redisApp.service('redisService',['redisCallService','$q',function redis(redisCal
     };
     self.set = function(key,val,ex){
         return redisCallService('SET',[key,val,exp]);
+    };
+    self.hmset = function(hashName,args){
+        var nArgs = [hashName];
+        forEach(args,function(itm){
+            nArgs.push(itm);
+        });
+        return redisCallService('HMSET',nArgs);
+    };
+    self.hset = function(hashName,args){
+        var nArgs = [hashName];
+        forEach(args,function(itm){
+            nArgs.push(itm);
+        });
+        return redisCallService('HSET',nArgs);
+    };
+    self.hget = function(hashName,key){
+        return redisCallService('HGET',[hashName.key]);
+    };
+    self.hgetall = function(hashName){
+        return redisCallService('HGETALL',[hashName])
     };
 }]);
