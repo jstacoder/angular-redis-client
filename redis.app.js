@@ -5,7 +5,12 @@ var forEach = angular.forEach,
     extend = angular.extend,
     fromJson = angular.fromJson,
     isArray = angular.isArray,
-    isDefined = angular.isDefined;
+    isDefined = angular.isDefined,
+    isString = angular.isString;
+    
+var isObject = function(itm){
+    return angular.isObject(itm) && !isArray(itm);  
+};
 
 var app = angular.module('redis.app',[]);
 // use redisProvider to configure 
@@ -14,8 +19,8 @@ app.constant('REDIS_PORT',7379); // standard webdis port
 
 app.provider('redisUrl',['REDIS_HOST','REDIS_PORT',function(REDIS_HOST,REDIS_PORT){
   /* 
-   * use redisUrlProvider.set('host',xxxx); 
-   * and redisUrlProvider.set('port',xxxx); 
+   * use redisUrlProvider.setHost(xxxx); 
+   * and redisUrlProvider.setPort(xxxx); 
    * inside a config function
    * to customize your setup
    */
@@ -34,7 +39,7 @@ app.provider('redisUrl',['REDIS_HOST','REDIS_PORT',function(REDIS_HOST,REDIS_POR
     };
     return {
         $get:[function(){
-            return "http://"+self.host+":"+self.port;
+            return "http://"+self.host+":"+self.port+"/";
         }],
         set:self.set,
         setHost:self.setHost,
@@ -47,23 +52,51 @@ app.factory('redisArgs',[function(){
         var rtn = '';
         if(isString(args)){
             return '/'+args;
-        }
-        if(!isArray(args)){
-            forEach(args,function(val,key){
-                rtn += '/'+key+'/'+val;
-            });
-        }else{
-            forEach(args,function(val){
-                rtn += '/'+val;
-            });
+        }else {
+            if(!isArray(args) && isObject(args)){
+                forEach(args,function(val,key){
+                    rtn += '/'+key+'/'+val;
+                });
+            }else{
+                forEach(args,function(val){
+                    rtn += '/'+val;
+                });
+            }
         }
         return rtn;
+    };
+}]);
+app.factory('redisUrlService',['redisUrl','redisArgs',function redisUrlService(REDIS_URL,redisArgs){
+    return function(cmd,args){
+            var url = REDIS_URL+cmd+'/';
+            if(args && args.length && isArray(args)){
+                forEach(args,function(itm,idx){
+                    if (isString(itm)) {
+                        url = url + itm + (idx != args.length-1 ? '/' : '');                    
+                    }else{
+                        '/';
+                    }                        
+                });
+            }else{
+                url += redisArgs(args);
+            }
+            return url;
+    };
+}]);
+app.factory('redisCallFactory',['$http','redisUrlService',function redisCallService($http,redisUrlService){
+    return function(cmd,args){
+        return $http.get(
+                redisUrlService(cmd,args)
+        );
     };
 }]);
 app.factory('redisRequest',['$http','redisUrl','redisArgs',function($http,redisUrl,redisArgs){
     var url = redisUrl;
     return function(reqType,args){
-        return $http.get(url+redisArgs([reqType])+redisArgs(args));
+        if (!url.endsWith('/')) {
+            url += '/';
+        }
+        return $http.get(url+"/"+redisArgs(reqType)+redisArgs(args));
     };
 }]);
 app.factory('redisGet',['redisRequest','$q',function(redisRequest,$q){
@@ -81,14 +114,16 @@ app.factory('redisGet',['redisRequest','$q',function(redisRequest,$q){
         return promise.promise;
     };
 }]);
-redisApp.factory('redisCallService',['$http','redisUrlService',function redisCallService($http,redisUrlService){
+app.factory('redisCallService',['$http','redisRequest','$q',function redisCallService($http,redisRequest,$q){
     return function(cmd,args){
-        return $http.get(
-                redisUrlService(cmd,args)
-        );
+        var defer = $q.defered();
+        redisRequest(cmd,args).then(function(res){
+            defer.resolve(res.data[cmd]);
+        });
+        return defer.promise;
     };
 }]);
-redisApp.service('redisService',['redisCallService','$q',function redis(redisCallService,$q){
+app.service('redisService',['redisCallFactory','$q',function redis(redisCallService,$q){
     var self = this;
 
     self.get = function(key){
@@ -100,21 +135,29 @@ redisApp.service('redisService',['redisCallService','$q',function redis(redisCal
     self.hmset = function(hashName,args){
         var nArgs = [hashName];
         forEach(args,function(itm){
-            nArgs.push(itm);
-        });
+                nArgs.push(itm);    
+            });
         return redisCallService('HMSET',nArgs);
     };
     self.hset = function(hashName,args){
-        var nArgs = [hashName];
-        forEach(args,function(itm){
-            nArgs.push(itm);
+        var tmpArgs = angular.extend({},args,{name:hashName});
+        var keys = Object.keys(tmpArgs);
+        var nArgs = keys.map(function(itm){
+            return itm !== 'name' ? args[itm] : tmpArgs[itm];
         });
+        console.log(nArgs);
         return redisCallService('HSET',nArgs);
     };
     self.hget = function(hashName,key){
-        return redisCallService('HGET',[hashName.key]);
+        if(!key){
+            return self.hgetall(hashName);
+        }
+        return redisCallService('HGET',[hashName,key]);
     };
     self.hgetall = function(hashName){
         return redisCallService('HGETALL',[hashName])
+    };
+    self.expire = function(key,seconds){
+        return redisCallService('EXPIRE',[key,seconds]);  
     };
 }]);
