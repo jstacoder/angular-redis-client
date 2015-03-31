@@ -12,7 +12,19 @@ to use different host or port for webdis, use redisUrlProvider in config
 
 ```javascript
 myApp.config(['redisUrlProvider',function(redisUrlProvider){
-    redisUrlProvider.set('host','myhost.com');
-    redisUrlProvider.set('port',4444);
+    redisUrlProvider.setHost('myhost.com');
+    redisUrlProvider.setPort(4444);
+}]);
+```
+Now run redis commands
+```javascript
+myApp.controller('RedisCtrl',['redisService',function(redisService){
+    var self = this;
+    redisService.hmset('hash:key',['key1','val1','key2','val2']).then(function(res){
+        
+    });
+    redisService.hgetall('hash:key').then(function(res){
+        self.data = res.data.HGETALL;
+    });
 }]);
 ```
